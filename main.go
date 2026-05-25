@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"net/http"
 	"sync"
 	"time"
 
@@ -56,7 +57,34 @@ func main() {
 // Route handlers
 
 // Create Blog Post
-func createPostHandler(c *gin.Context) {}
+func createPostHandler(c *gin.Context) {
+	var req PostInput
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": err.Error(),
+		})
+		return
+	}
+
+	mutex.Lock()
+	defer mutex.Unlock()
+
+	post := Post{
+		ID:        nextID,
+		Title:     req.Title,
+		Content:   req.Content,
+		Category:  req.Category,
+		Tags:      req.Tags,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+
+	nextID++
+	posts = append(posts, post)
+
+	c.JSON(http.StatusCreated, post)
+}
 
 // Update Blog Post
 func updatePostHandler(c *gin.Context) {}
