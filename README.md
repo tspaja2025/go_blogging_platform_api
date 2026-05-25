@@ -112,7 +112,10 @@ Example:
 * JSON file storage
 * Standard library packages:
 
-  * `-`
+	* `-`
+	* `fmt`
+	* `sync`
+	* `github.com/gin-gonic/gin`
 
 ## Learning Goals
 
