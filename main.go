@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
@@ -87,7 +88,44 @@ func createPostHandler(c *gin.Context) {
 }
 
 // Update Blog Post
-func updatePostHandler(c *gin.Context) {}
+func updatePostHandler(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "invalid post ID",
+		})
+		return
+	}
+
+	var req PostInput
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": err.Error(),
+		})
+		return
+	}
+
+	mutex.Lock()
+	defer mutex.Unlock()
+
+	for i, post := range posts {
+		if post.ID == id {
+			posts[i].Title = req.Title
+			posts[i].Content = req.Content
+			posts[i].Category = req.Category
+			posts[i].Tags = req.Tags
+			posts[i].UpdatedAt = time.Now()
+
+			c.JSON(http.StatusOK, posts[i])
+			return
+		}
+	}
+
+	c.JSON(http.StatusNotFound, gin.H{
+		"error": "post not found",
+	})
+}
 
 // Delete Blog Post
 func deletePostHandler(c *gin.Context) {}
