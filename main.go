@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -128,10 +129,71 @@ func updatePostHandler(c *gin.Context) {
 }
 
 // Delete Blog Post
-func deletePostHandler(c *gin.Context) {}
+func deletePostHandler(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "invalid post ID",
+		})
+		return
+	}
+
+	mutex.Lock()
+	defer mutex.Unlock()
+
+	for i, post := range posts {
+		if post.ID == id {
+			posts = append(posts[:i], posts[i+1:]...)
+			c.Status(http.StatusNoContent)
+			return
+		}
+	}
+
+	c.JSON(http.StatusNotFound, gin.H{
+		"error": "post not found",
+	})
+}
 
 // Get Single Blog Post
-func getPostHandler(c *gin.Context) {}
+func getPostHandler(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "invalid post ID",
+		})
+		return
+	}
+
+	for _, post := range posts {
+		if post.ID == id {
+			c.JSON(http.StatusOK, post)
+			return
+		}
+	}
+
+	c.JSON(http.StatusNotFound, gin.H{
+		"error": "post not found",
+	})
+}
 
 // Get all Posts
-func getPostsHandler(c *gin.Context) {}
+func getPostsHandler(c *gin.Context) {
+	term := strings.ToLower(c.Query("term"))
+
+	if term == "" {
+		c.JSON(http.StatusOK, posts)
+		return
+	}
+
+	filteredPosts := []Post{}
+
+	for _, post := range posts {
+		if strings.Contains(strings.ToLower(post.Title), term) ||
+			strings.Contains(strings.ToLower(post.Content), term) ||
+			strings.Contains(strings.ToLower(post.Category), term) {
+			filteredPosts = append(filteredPosts, post)
+		}
+	}
+
+	c.JSON(http.StatusOK, filteredPosts)
+}
