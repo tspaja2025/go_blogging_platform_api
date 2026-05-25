@@ -3,18 +3,34 @@ package main
 import (
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
 
 // Represents the data structure of a blog post
-type Post struct{}
+type Post struct {
+	ID        int       `json:"id"`
+	Title     string    `json:"title"`
+	Content   string    `json:"content"`
+	Category  string    `json:"category"`
+	Tags      []string  `json:"tags"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
+}
 
 // Represents the required payload to create/update a post
-type PostInput struct{}
+type PostInput struct {
+	Title    string   `json:"title"`
+	Content  string   `json:"content"`
+	Category string   `json:"category"`
+	Tags     []string `json:"tags"`
+}
 
 // Handles JSON error outputs
-type ErrorResponse struct{}
+type ErrorResponse struct {
+	Error string `json:"error"`
+}
 
 // In-memory database with a Mutex to prevent race conditions during concurrent API requests
 var (
