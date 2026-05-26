@@ -1,14 +1,14 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/gin-gonic/gin"
 )
 
 // Represents the data structure of a blog post
@@ -39,71 +39,108 @@ type ErrorResponse struct {
 var (
 	posts  = []Post{}
 	nextID = 1
-	mutex  sync.Mutex
+	mutex  sync.RWMutex
 )
 
 func main() {
-	router := gin.Default()
+	mux := http.NewServeMux()
 
 	// Routes
-	router.POST("/posts", createPostHandler)
-	router.PUT("/posts/:id", getPostHandler)
-	router.DELETE("/posts/:id", getPostHandler)
-	router.GET("/posts/:id", updatePostHandler)
-	router.GET("/posts", deletePostHandler)
+	mux.HandleFunc("POST /posts", createPostHandler)
+	mux.HandleFunc("GET /posts", getPostsHandler)
+	mux.HandleFunc("GET /posts/{id}", getPostHandler)
+	mux.HandleFunc("PUT /posts/{id}", updatePostHandler)
+	mux.HandleFunc("DELETE /posts/{id}", deletePostHandler)
 
 	fmt.Println("Server is running at http://localhost:3000")
-	router.Run(":3000")
+	log.Fatal(http.ListenAndServe(":3000", mux))
+}
+
+// Helper functions
+func validateInput(input PostInput) error {
+	if strings.TrimSpace(input.Title) == "" {
+		return fmt.Errorf("title is required and cannot be empty")
+	}
+	if strings.TrimSpace(input.Content) == "" {
+		return fmt.Errorf("content is required and cannot be empty")
+	}
+	if strings.TrimSpace(input.Category) == "" {
+		return fmt.Errorf("category is required and cannot be empty")
+	}
+	return nil
+}
+
+// Shortcut helper to write JSON responses safely
+func sendJSON(w http.ResponseWriter, status int, data any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	json.NewEncoder(w).Encode(data)
+}
+
+// Formats and sends a bad request or error payload
+func sendError(w http.ResponseWriter, status int, message string) {
+	sendJSON(w, status, ErrorResponse{Error: message})
 }
 
 // Route handlers
 
 // Create Blog Post
-func createPostHandler(c *gin.Context) {
-	var req PostInput
+func createPostHandler(w http.ResponseWriter, r *http.Request) {
+	var input PostInput
 
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": err.Error(),
-		})
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+
+	if err := decoder.Decode(&input); err != nil {
+		sendError(w, http.StatusBadRequest, "Invalid JSON payload")
+		return
+	}
+
+	if err := validateInput(input); err != nil {
+		sendError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
 	mutex.Lock()
 	defer mutex.Unlock()
 
+	now := time.Now()
 	post := Post{
 		ID:        nextID,
-		Title:     req.Title,
-		Content:   req.Content,
-		Category:  req.Category,
-		Tags:      req.Tags,
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
+		Title:     input.Title,
+		Content:   input.Content,
+		Category:  input.Category,
+		Tags:      input.Tags,
+		CreatedAt: now,
+		UpdatedAt: now,
 	}
 
 	nextID++
 	posts = append(posts, post)
 
-	c.JSON(http.StatusCreated, post)
+	sendJSON(w, http.StatusCreated, post)
 }
 
 // Update Blog Post
-func updatePostHandler(c *gin.Context) {
-	id, err := strconv.Atoi(c.Param("id"))
+func updatePostHandler(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.Atoi(r.PathValue("id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "invalid post ID",
-		})
+		sendError(w, http.StatusBadRequest, "Invalid post ID format")
 		return
 	}
 
-	var req PostInput
+	var input PostInput
 
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": err.Error(),
-		})
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+
+	if err := decoder.Decode(&input); err != nil {
+		sendError(w, http.StatusBadRequest, "Invalid JSON payload")
+		return
+	}
+
+	if err := validateInput(input); err != nil {
+		sendError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -112,29 +149,25 @@ func updatePostHandler(c *gin.Context) {
 
 	for i, post := range posts {
 		if post.ID == id {
-			posts[i].Title = req.Title
-			posts[i].Content = req.Content
-			posts[i].Category = req.Category
-			posts[i].Tags = req.Tags
+			posts[i].Title = input.Title
+			posts[i].Content = input.Content
+			posts[i].Category = input.Category
+			posts[i].Tags = input.Tags
 			posts[i].UpdatedAt = time.Now()
 
-			c.JSON(http.StatusOK, posts[i])
+			sendJSON(w, http.StatusOK, posts[i])
 			return
 		}
 	}
 
-	c.JSON(http.StatusNotFound, gin.H{
-		"error": "post not found",
-	})
+	sendError(w, http.StatusNotFound, "Blog post not found")
 }
 
 // Delete Blog Post
-func deletePostHandler(c *gin.Context) {
-	id, err := strconv.Atoi(c.Param("id"))
+func deletePostHandler(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.Atoi(r.PathValue("id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "invalid post ID",
-		})
+		sendError(w, http.StatusBadRequest, "Invalid post ID format")
 		return
 	}
 
@@ -143,57 +176,62 @@ func deletePostHandler(c *gin.Context) {
 
 	for i, post := range posts {
 		if post.ID == id {
+			// Remove post from slice
 			posts = append(posts[:i], posts[i+1:]...)
-			c.Status(http.StatusNoContent)
+			w.WriteHeader(http.StatusNoContent)
 			return
 		}
 	}
 
-	c.JSON(http.StatusNotFound, gin.H{
-		"error": "post not found",
-	})
+	sendError(w, http.StatusNotFound, "Blog post not found")
 }
 
 // Get Single Blog Post
-func getPostHandler(c *gin.Context) {
-	id, err := strconv.Atoi(c.Param("id"))
+func getPostHandler(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.Atoi(r.PathValue("id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "invalid post ID",
-		})
+		sendError(w, http.StatusBadRequest, "Invalid post ID format")
 		return
 	}
 
+	mutex.RLock()
+	defer mutex.RUnlock()
+
 	for _, post := range posts {
 		if post.ID == id {
-			c.JSON(http.StatusOK, post)
+			sendJSON(w, http.StatusOK, post)
 			return
 		}
 	}
 
-	c.JSON(http.StatusNotFound, gin.H{
-		"error": "post not found",
-	})
+	sendError(w, http.StatusNotFound, "Blog post not found")
 }
 
 // Get all Posts
-func getPostsHandler(c *gin.Context) {
-	term := strings.ToLower(c.Query("term"))
+func getPostsHandler(w http.ResponseWriter, r *http.Request) {
+	term := strings.ToLower(r.URL.Query().Get("term"))
 
+	mutex.RLock()
+	defer mutex.RUnlock()
+
+	// If no filter term is present, return all posts
 	if term == "" {
-		c.JSON(http.StatusOK, posts)
+		sendJSON(w, http.StatusOK, posts)
 		return
 	}
 
 	filteredPosts := []Post{}
-
 	for _, post := range posts {
-		if strings.Contains(strings.ToLower(post.Title), term) ||
-			strings.Contains(strings.ToLower(post.Content), term) ||
-			strings.Contains(strings.ToLower(post.Category), term) {
+		if contains(post.Title, term) ||
+			contains(post.Content, term) ||
+			contains(post.Category, term) {
 			filteredPosts = append(filteredPosts, post)
 		}
 	}
 
-	c.JSON(http.StatusOK, filteredPosts)
+	sendJSON(w, http.StatusOK, filteredPosts)
+}
+
+func contains(text, term string) bool {
+	return strings.Contains(strings.ToLower(text), term)
 }
